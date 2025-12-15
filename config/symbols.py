@@ -19,6 +19,7 @@ class SecurityType(Enum):
     FOREX = "CASH"      # 外匯
     INDEX = "IND"       # 指數
     CFD = "CFD"         # 差價合約
+    COMMODITY = "CMDTY" # 商品
 
 
 class OptionRight(Enum):
@@ -395,3 +396,39 @@ def get_next_expiry(symbol: str, months_ahead: int = 1) -> str:
         year += 1
     
     return f"{year}{month:02d}"
+
+def create_commodity(
+    symbol: str,
+    exchange: str = "SMART",
+    currency: str = "USD",
+    **kwargs
+) -> SymbolConfig:
+    """
+    建立商品標的配置
+    
+    Args:
+        symbol: 商品代碼 (如 XAUUSD, XAGUSD)
+        exchange: 交易所 (預設 SMART)
+        currency: 貨幣 (預設 USD)
+        
+    Returns:
+        SymbolConfig 實例
+        
+    Example:
+        >>> gold = create_commodity("XAUUSD")  # 黃金
+        >>> silver = create_commodity("XAGUSD")  # 白銀
+    """
+    return SymbolConfig(
+        symbol=symbol,
+        security_type=SecurityType.COMMODITY,
+        exchange=exchange,
+        currency=currency,
+        **kwargs
+    )
+
+
+# 貴金屬商品
+COMMODITIES: List[SymbolConfig] = [
+    create_commodity("XAUUSD", description="London Gold"),
+    create_commodity("XAGUSD", description="London Silver"),
+]

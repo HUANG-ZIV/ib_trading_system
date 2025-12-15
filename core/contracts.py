@@ -9,6 +9,7 @@ from typing import Optional, List, Union
 from datetime import datetime
 
 from ib_insync import (
+    Commodity,
     Contract,
     Stock,
     Future,
@@ -71,6 +72,7 @@ class ContractFactory:
             SecurityType.FOREX: self._create_forex,
             SecurityType.INDEX: self._create_index,
             SecurityType.CFD: self._create_cfd,
+            SecurityType.COMMODITY: self._create_commodity,
         }
         
         builder = builders.get(config.security_type)
@@ -191,6 +193,16 @@ class ContractFactory:
         
         return contract
     
+
+    def _create_commodity(self, config: SymbolConfig) -> Commodity:
+        """建立商品合約"""
+        contract = Commodity(
+            symbol=config.symbol,
+            exchange=config.exchange,
+            currency=config.currency,
+        )
+        
+        return contract
     # ========== 便捷方法 ==========
     
     def stock(
