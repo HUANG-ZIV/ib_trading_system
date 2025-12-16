@@ -10,6 +10,7 @@ from datetime import datetime
 
 from ib_insync import (
     Commodity,
+    Commodity,
     Contract,
     Stock,
     Future,
@@ -396,6 +397,32 @@ class ContractFactory:
         logger.debug(f"建立指數合約: {symbol}")
         return contract
     
+
+    def commodity(
+        self,
+        symbol: str,
+        exchange: str = "SMART",
+        currency: str = "USD",
+    ) -> Commodity:
+        """
+        建立商品合約的便捷方法
+        
+        Args:
+            symbol: 商品代碼 (如 XAUUSD, XAGUSD)
+            exchange: 交易所 (預設 SMART)
+            currency: 貨幣 (預設 USD)
+            
+        Returns:
+            Commodity 合約
+        """
+        contract = Commodity(
+            symbol=symbol,
+            exchange=exchange,
+            currency=currency,
+        )
+        
+        logger.debug(f"建立商品合約: {symbol}")
+        return contract
     def cfd(
         self,
         symbol: str,
