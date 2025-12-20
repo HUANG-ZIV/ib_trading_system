@@ -37,6 +37,7 @@ from core.events import (
     OrderStatus,
 )
 from core.event_bus import EventBus, get_event_bus
+from risk.manager import RiskManager
 from core.connection import IBConnection
 from core.contracts import ContractFactory, get_contract_factory
 
@@ -112,6 +113,7 @@ class ExecutionEngine:
         event_bus: Optional[EventBus] = None,
         mode: ExecutionMode = ExecutionMode.PAPER,
         auto_process_signals: bool = True,
+        risk_manager: Optional[RiskManager] = None,
     ):
         """
         初始化執行引擎
@@ -121,8 +123,10 @@ class ExecutionEngine:
             event_bus: 事件總線
             mode: 執行模式
             auto_process_signals: 是否自動處理 SignalEvent
+            risk_manager: 風險管理器（可選，用於信號風控檢查）
         """
         self._connection = connection
+        self._risk_manager = risk_manager
         self._ib = connection.ib
         self._event_bus = event_bus or get_event_bus()
         self._mode = mode
@@ -227,6 +231,20 @@ class ExecutionEngine:
         if self._mode == ExecutionMode.SIMULATION:
             self._simulate_signal(signal)
             return
+        
+        # 風控檢查
+        if self._risk_manager:
+            result = self._risk_manager.check_signal(signal)
+            
+            if not result.passed:
+                logger.warning(
+                    f"風控拒絕信號: {signal.symbol} {signal.action.value} - {result.reason}"
+                )
+                return
+            
+            if result.has_warnings:
+                for warning in result.warnings:
+                    logger.warning(f"風控警告: {warning}")
         
         try:
             self.process_signal(signal)

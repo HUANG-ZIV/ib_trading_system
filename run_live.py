@@ -273,6 +273,7 @@ class LiveTrader:
             self._execution_engine = ExecutionEngine(
                 connection=self._connection,
                 event_bus=self._event_bus,
+                risk_manager=self._risk_manager,
             )
             
             self._logger.info("所有組件初始化完成")
