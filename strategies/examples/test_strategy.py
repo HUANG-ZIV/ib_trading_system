@@ -58,7 +58,7 @@ class TestStrategy(BaseStrategy):
         # 建立配置
         if config is None:
             config = TestStrategyConfig(
-                strategy_id=strategy_id or "test_strategy",
+                name=strategy_id or "test_strategy",
                 symbols=symbols or [],
                 trigger_bars=trigger_bars,
                 quantity=quantity,

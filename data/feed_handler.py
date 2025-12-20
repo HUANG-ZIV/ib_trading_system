@@ -186,10 +186,14 @@ class FeedHandler:
             
             # 訂閱即時 5 秒 Bar
             if subscription_type in [SubscriptionType.REALTIME_BAR, SubscriptionType.BOTH]:
+                # 根據合約類型選擇 whatToShow
+                # 外匯和商品用 MIDPOINT，股票用 TRADES
+                what_to_show = "MIDPOINT" if contract.secType in ["CASH", "CMDTY"] else "TRADES"
+                
                 bars = self._ib.reqRealTimeBars(
                     contract,
                     barSize=5,  # 只支援 5 秒
-                    whatToShow="TRADES",
+                    whatToShow=what_to_show,
                     useRTH=False,
                 )
                 sub_info.realtime_bars_handle = bars

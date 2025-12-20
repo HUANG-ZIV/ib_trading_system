@@ -52,7 +52,7 @@ from engine.strategy_engine import StrategyEngine
 from engine.execution_engine import ExecutionEngine
 
 # 數據
-from data.feed_handler import FeedHandler, SubscriptionType
+from data.feed_handler import FeedHandler
 from data.bar_aggregator import BarAggregator
 from data.cache import MarketDataCache
 
@@ -64,7 +64,6 @@ from risk.circuit_breaker import CircuitBreaker, BreakerConfig
 # 策略
 from strategies.base import StrategyConfig
 from strategies.examples.sma_cross import SMACrossStrategy
-from strategies.examples.test_strategy import TestStrategy
 
 # 工具
 from utils.logger import setup_logger, get_logger
@@ -87,7 +86,6 @@ from utils.performance import PerformanceMonitor
 
 # 外匯交易標的（免費數據）
 LIVE_SYMBOLS = [
-    "XAUUSD",    # 黃金（商品）
     "EUR/USD",   # 歐元/美元
     "GBP/USD",   # 英鎊/美元
     "USD/JPY",   # 美元/日圓
@@ -97,17 +95,8 @@ LIVE_SYMBOLS = [
 
 # 策略配置
 STRATEGY_CONFIG = {
-    "test_strategy": {
-        "enabled": True,
-        "symbols": ["XAUUSD", "USD/JPY"],
-        "params": {
-            "trigger_bars": 3,
-            "auto_close_bars": 2,
-            "quantity": 1,
-        },
-    },
     "sma_cross": {
-        "enabled": False,
+        "enabled": True,
         "symbols": LIVE_SYMBOLS,
         "params": {
             "fast_period": 10,
@@ -357,11 +346,8 @@ class LiveTrader:
         
         for symbol in self._symbols:
             try:
-                # 判斷標的類型
-                if symbol in ["XAUUSD", "XAGUSD"]:
-                    # 商品
-                    contract = self._contract_factory.commodity(symbol)
-                elif "/" in symbol:
+                # 判斷是外匯還是股票
+                if "/" in symbol:
                     # 外匯：EUR/USD -> base=EUR, quote=USD
                     parts = symbol.split("/")
                     base = parts[0]
@@ -372,10 +358,7 @@ class LiveTrader:
                     contract = self._contract_factory.stock(symbol)
                 
                 # 訂閱即時數據
-                success = await self._feed_handler.subscribe(
-                    contract=contract,
-                    subscription_type=SubscriptionType.REALTIME_BAR,
-                )
+                success = await self._feed_handler.subscribe(contract=contract)
                 
                 if success:
                     subscribed += 1
@@ -391,26 +374,6 @@ class LiveTrader:
     async def _load_strategies(self) -> None:
         """載入並啟動策略"""
         self._logger.info("載入策略...")
-        
-        # 測試策略
-        test_config = STRATEGY_CONFIG.get("test_strategy", {})
-        
-        if test_config.get("enabled", False):
-            params = test_config.get("params", {})
-            
-            strategy = TestStrategy(
-                strategy_id="test_strategy_live",
-                symbols=test_config.get("symbols", ["XAUUSD", "USD/JPY"]),
-                trigger_bars=params.get("trigger_bars", 3),
-                auto_close_bars=params.get("auto_close_bars", 2),
-                quantity=params.get("quantity", 1),
-            )
-            
-            self._strategy_engine.add_strategy(strategy)
-            strategy.initialize()
-            strategy.start()
-            
-            self._logger.info(f"已載入策略: test_strategy_live")
         
         # SMA 交叉策略
         sma_config = STRATEGY_CONFIG.get("sma_cross", {})
