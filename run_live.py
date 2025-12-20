@@ -324,6 +324,9 @@ class LiveTrader:
         # 取得帳戶資訊
         await self._fetch_account_info()
         
+        # 同步現有持倉
+        await self._sync_ib_positions()
+        
         # 訂閱標的
         await self._subscribe_symbols()
         
@@ -348,6 +351,38 @@ class LiveTrader:
                     
         except Exception as e:
             self._logger.warning(f"取得帳戶資訊失敗: {e}")
+    
+    async def _sync_ib_positions(self) -> None:
+        """從 IB 同步現有持倉"""
+        try:
+            ib = self._connection.ib
+            
+            # 取得 IB 持倉
+            ib_positions = ib.positions()
+            
+            if not ib_positions:
+                self._logger.info("目前無持倉")
+                return
+            
+            # 轉換為 RiskManager 需要的格式
+            positions_data = {}
+            for pos in ib_positions:
+                symbol = pos.contract.symbol
+                positions_data[symbol] = {
+                    "quantity": int(pos.position),
+                    "avg_cost": float(pos.avgCost),
+                    "market_value": float(pos.position * pos.avgCost),
+                }
+                self._logger.info(
+                    f"同步持倉: {symbol} = {int(pos.position)} @ ${pos.avgCost:.2f}"
+                )
+            
+            # 同步到 RiskManager
+            self._risk_manager.sync_positions(positions_data)
+            self._logger.info(f"已同步 {len(positions_data)} 個持倉")
+            
+        except Exception as e:
+            self._logger.warning(f"同步持倉失敗: {e}")
     
     async def _subscribe_symbols(self) -> None:
         """訂閱交易標的"""
