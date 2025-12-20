@@ -664,6 +664,81 @@ class Database:
             created_at=record.created_at,
         )
     
+    def get_open_positions(self) -> Dict[str, Dict[str, Any]]:
+        """
+        取得未平倉的持倉及其策略來源
+        
+        邏輯：
+        1. 取得所有交易記錄
+        2. 按 symbol 計算淨持倉 (BUY - SELL)
+        3. 找出最後一筆與淨方向相同的交易，取得 strategy_id
+        
+        Returns:
+            {symbol: {"quantity", "avg_cost", "strategy_id", "last_trade_time"}}
+        """
+        with self.session_scope() as session:
+            # 取得所有交易記錄
+            trades = session.query(TradeRecord).order_by(
+                TradeRecord.symbol,
+                TradeRecord.execution_time
+            ).all()
+            
+            # 按 symbol 計算淨持倉
+            positions: Dict[str, Dict[str, Any]] = {}
+            
+            for trade in trades:
+                symbol = trade.symbol
+                
+                if symbol not in positions:
+                    positions[symbol] = {
+                        "quantity": 0,
+                        "total_cost": 0.0,
+                        "strategy_id": None,
+                        "last_trade_time": None,
+                    }
+                
+                pos = positions[symbol]
+                
+                if trade.action == "BUY":
+                    # 買入：增加持倉
+                    new_qty = pos["quantity"] + trade.quantity
+                    if pos["quantity"] >= 0:
+                        # 加倉
+                        pos["total_cost"] += trade.quantity * trade.price
+                    else:
+                        # 平空倉
+                        pos["total_cost"] = trade.quantity * trade.price if new_qty > 0 else 0
+                    pos["quantity"] = new_qty
+                    pos["strategy_id"] = trade.strategy_id
+                    pos["last_trade_time"] = trade.execution_time
+                    
+                elif trade.action == "SELL":
+                    # 賣出：減少持倉
+                    new_qty = pos["quantity"] - trade.quantity
+                    if pos["quantity"] <= 0:
+                        # 加空倉
+                        pos["total_cost"] += trade.quantity * trade.price
+                    else:
+                        # 平多倉
+                        pos["total_cost"] = trade.quantity * trade.price if new_qty < 0 else 0
+                    pos["quantity"] = new_qty
+                    pos["strategy_id"] = trade.strategy_id
+                    pos["last_trade_time"] = trade.execution_time
+            
+            # 過濾掉已平倉的（quantity = 0）
+            result = {}
+            for symbol, pos in positions.items():
+                if pos["quantity"] != 0:
+                    avg_cost = pos["total_cost"] / abs(pos["quantity"]) if pos["quantity"] != 0 else 0
+                    result[symbol] = {
+                        "quantity": pos["quantity"],
+                        "avg_cost": avg_cost,
+                        "strategy_id": pos["strategy_id"],
+                        "last_trade_time": pos["last_trade_time"],
+                    }
+            
+            return result
+    
     def get_trade_summary(
         self,
         start_time: Optional[datetime] = None,

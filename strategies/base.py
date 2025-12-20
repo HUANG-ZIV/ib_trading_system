@@ -609,6 +609,59 @@ class BaseStrategy(ABC):
         """取得總未實現盈虧"""
         return sum(pos.unrealized_pnl for pos in self._positions.values())
     
+    # ========== 持倉恢復 ==========
+    
+    def restore_position(
+        self,
+        symbol: str,
+        quantity: int,
+        avg_cost: float = 0.0,
+        strategy_id: str = "",
+    ) -> bool:
+        """
+        恢復持倉狀態（用於系統重啟後）
+        
+        Args:
+            symbol: 標的代碼
+            quantity: 持倉數量（正數多頭，負數空頭）
+            avg_cost: 平均成本
+            strategy_id: 策略 ID（用於驗證）
+            
+        Returns:
+            是否成功恢復
+        """
+        # 驗證是否屬於此策略
+        if strategy_id and strategy_id != self._strategy_id:
+            self._logger.debug(
+                f"持倉 {symbol} 屬於策略 {strategy_id}，非本策略 {self._strategy_id}"
+            )
+            return False
+        
+        # 驗證是否在本策略的交易標的中
+        if symbol not in self._symbols:
+            self._logger.debug(
+                f"持倉 {symbol} 不在本策略的交易標的中"
+            )
+            return False
+        
+        # 恢復持倉
+        if symbol not in self._positions:
+            self._positions[symbol] = Position(symbol=symbol)
+        
+        pos = self._positions[symbol]
+        pos.quantity = quantity
+        pos.avg_cost = avg_cost
+        
+        self._logger.info(
+            f"已恢復持倉: {symbol} = {quantity} @ ${avg_cost:.2f}"
+        )
+        
+        return True
+    
+    def get_strategy_id(self) -> str:
+        """取得策略 ID"""
+        return self._strategy_id
+    
     # ========== 工具方法 ==========
     
     def log(self, message: str, level: str = "info") -> None:

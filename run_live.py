@@ -399,6 +399,55 @@ class LiveTrader:
         except Exception as e:
             self._logger.warning(f"同步持倉失敗: {e}")
     
+    async def _restore_strategy_positions(self) -> None:
+        """從數據庫恢復策略持倉"""
+        if not self._database:
+            return
+        
+        try:
+            # 從數據庫查詢未平倉持倉
+            open_positions = self._database.get_open_positions()
+            
+            if not open_positions:
+                self._logger.info("數據庫無未平倉記錄")
+                return
+            
+            self._logger.info(f"發現 {len(open_positions)} 個未平倉持倉，嘗試恢復...")
+            
+            # 取得所有已載入的策略
+            strategies = self._strategy_engine.get_strategy_objects()
+            
+            for symbol, pos_info in open_positions.items():
+                quantity = pos_info["quantity"]
+                avg_cost = pos_info["avg_cost"]
+                strategy_id = pos_info["strategy_id"]
+                last_trade_time = pos_info["last_trade_time"]
+                
+                self._logger.info(
+                    f"  持倉: {symbol} = {quantity} @ ${avg_cost:.2f} "
+                    f"[策略: {strategy_id}, 時間: {last_trade_time}]"
+                )
+                
+                # 嘗試恢復到對應策略
+                restored = False
+                for strategy in strategies:
+                    if strategy.restore_position(
+                        symbol=symbol,
+                        quantity=quantity,
+                        avg_cost=avg_cost,
+                        strategy_id=strategy_id or "",
+                    ):
+                        restored = True
+                        break
+                
+                if not restored:
+                    self._logger.warning(
+                        f"  ⚠️ 無法恢復持倉 {symbol}，找不到對應策略"
+                    )
+            
+        except Exception as e:
+            self._logger.warning(f"恢復策略持倉失敗: {e}")
+    
     async def _subscribe_symbols(self) -> None:
         """訂閱交易標的"""
         self._logger.info(f"訂閱 {len(self._symbols)} 個標的...")
@@ -512,6 +561,9 @@ class LiveTrader:
             
             # 載入策略
             await self._load_strategies()
+            
+            # 恢復策略持倉（從數據庫）
+            await self._restore_strategy_positions()
             
             # 主循環
             loop_count = 0

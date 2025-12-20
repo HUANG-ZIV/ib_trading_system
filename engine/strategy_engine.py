@@ -269,6 +269,10 @@ class StrategyEngine:
         """取得所有策略 ID"""
         return list(self._strategies.keys())
     
+    def get_strategy_objects(self) -> List["BaseStrategy"]:
+        """取得所有策略物件"""
+        return [info.strategy for info in self._strategies.values()]
+    
     # ========== 策略控制 ==========
     
     def _start_strategy(self, strategy_id: str) -> bool:
