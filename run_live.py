@@ -53,6 +53,7 @@ from engine.execution_engine import ExecutionEngine
 
 # 數據
 from data.feed_handler import FeedHandler, SubscriptionType
+from data.database import DatabaseManager
 from data.bar_aggregator import BarAggregator
 from data.cache import MarketDataCache
 
@@ -158,6 +159,7 @@ class LiveTrader:
         self._circuit_breaker: Optional[CircuitBreaker] = None
         self._notifier: Optional[Notifier] = None
         self._performance_monitor: Optional[PerformanceMonitor] = None
+        self._database: Optional[DatabaseManager] = None
         
         # 狀態
         self._running = False
@@ -352,6 +354,18 @@ class LiveTrader:
                     
         except Exception as e:
             self._logger.warning(f"取得帳戶資訊失敗: {e}")
+    
+    def _on_trade_fill(self, event) -> None:
+        """處理成交事件，儲存到數據庫"""
+        if self._database:
+            success = self._database.save_trade(event)
+            if success:
+                self._logger.info(
+                    f"交易已記錄: {event.symbol} {event.action.value} "
+                    f"{event.quantity} @ {event.price:.4f} [策略: {event.strategy_id}]"
+                )
+            else:
+                self._logger.warning(f"交易記錄儲存失敗: {event.symbol}")
     
     async def _sync_ib_positions(self) -> None:
         """從 IB 同步現有持倉"""
