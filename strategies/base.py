@@ -662,6 +662,63 @@ class BaseStrategy(ABC):
         """取得策略 ID"""
         return self._strategy_id
     
+    def get_warmup_config(self) -> Dict[str, Any]:
+        """取得預熱配置"""
+        return {
+            "bars": self._config.warmup_bars,
+            "bar_size": self._config.warmup_bar_size,
+            "duration": self._config.warmup_duration,
+            "what_to_show": self._config.warmup_what_to_show,
+            "required": self._config.warmup_required,
+        }
+    
+    def needs_warmup(self) -> bool:
+        """是否需要預熱"""
+        return self._config.warmup_bars > 0 or self._config.warmup_duration != ""
+    
+    def load_history(self, symbol: str, bars: List[Any]) -> int:
+        """
+        載入歷史數據進行預熱
+        
+        Args:
+            symbol: 標的代碼
+            bars: 歷史 K 線列表（BarData）
+            
+        Returns:
+            載入的 K 線數量
+        """
+        if not bars:
+            self._logger.warning(f"預熱數據為空: {symbol}")
+            return 0
+        
+        count = 0
+        for bar in bars:
+            # 呼叫 on_bar 處理歷史數據
+            # 但標記為預熱模式，不發送交易信號
+            self._process_warmup_bar(symbol, bar)
+            count += 1
+        
+        self._logger.info(f"預熱完成: {symbol} 載入 {count} 根 K 線")
+        return count
+    
+    def _process_warmup_bar(self, symbol: str, bar: Any) -> None:
+        """
+        處理預熱 K 線（子類可覆寫）
+        
+        預設行為：更新內部數據結構，但不觸發交易
+        
+        Args:
+            symbol: 標的代碼
+            bar: K 線數據
+        """
+        # 更新 bar 計數
+        if symbol not in self._bar_counts:
+            self._bar_counts[symbol] = 0
+        self._bar_counts[symbol] += 1
+        
+        # 子類可覆寫此方法來更新指標等
+        # 例如：更新 SMA 緩衝區
+    
     # ========== 工具方法 ==========
     
     def log(self, message: str, level: str = "info") -> None:

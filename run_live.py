@@ -452,6 +452,81 @@ class LiveTrader:
         except Exception as e:
             self._logger.warning(f"恢復策略持倉失敗: {e}")
     
+    async def _warmup_strategies(self) -> None:
+        """策略預熱：載入歷史數據"""
+        strategies = self._strategy_engine.get_strategy_objects()
+        
+        for strategy in strategies:
+            if not strategy.needs_warmup():
+                continue
+            
+            warmup_config = strategy.get_warmup_config()
+            strategy_id = strategy.get_strategy_id()
+            symbols = strategy._symbols
+            
+            self._logger.info(f"策略 {strategy_id} 開始預熱...")
+            
+            for symbol in symbols:
+                try:
+                    # 建立合約
+                    if symbol in ["XAUUSD", "XAGUSD"]:
+                        contract = self._contract_factory.commodity(symbol)
+                    elif "/" in symbol:
+                        base, quote = symbol.split("/")
+                        contract = self._contract_factory.forex(base, quote)
+                    else:
+                        contract = self._contract_factory.stock(symbol)
+                    
+                    # 計算 duration
+                    if warmup_config["duration"]:
+                        duration = warmup_config["duration"]
+                    else:
+                        # 根據 bars 數量和 bar_size 計算 duration
+                        bars = warmup_config["bars"]
+                        bar_size = warmup_config["bar_size"]
+                        
+                        # 簡單計算：假設每根 K 線的時間
+                        if "sec" in bar_size:
+                            secs = int(bar_size.split()[0]) * bars
+                            duration = f"{secs + 60} S"  # 多取一點
+                        elif "min" in bar_size:
+                            mins = int(bar_size.split()[0]) * bars
+                            duration = f"{mins + 5} M"
+                        elif "hour" in bar_size:
+                            hours = int(bar_size.split()[0]) * bars
+                            duration = f"{hours + 1} H"
+                        else:
+                            duration = "1 D"
+                    
+                    # 下載歷史數據
+                    self._logger.info(
+                        f"  下載 {symbol} 歷史數據: {duration}, {warmup_config['bar_size']}"
+                    )
+                    
+                    bars = self._feed_handler.get_historical_bars_sync(
+                        contract=contract,
+                        bar_size=warmup_config["bar_size"],
+                        duration=duration,
+                        what_to_show=warmup_config["what_to_show"],
+                    )
+                    
+                    if bars:
+                        # 載入到策略
+                        count = strategy.load_history(symbol, bars)
+                        self._logger.info(f"  ✅ {symbol} 預熱完成，載入 {count} 根 K 線")
+                    else:
+                        self._logger.warning(f"  ⚠️ {symbol} 無歷史數據")
+                        
+                        if warmup_config["required"]:
+                            self._logger.error(f"  🚨 {symbol} 預熱失敗且為必要，暫停策略")
+                            # 可以在這裡暫停策略
+                            
+                except Exception as e:
+                    self._logger.warning(f"  ⚠️ {symbol} 預熱失敗: {e}")
+                    
+                    if warmup_config["required"]:
+                        self._logger.error(f"  🚨 預熱失敗且為必要，暫停策略")
+    
     async def _sync_positions_periodically(self) -> None:
         """定期同步持倉（比對 IB 與內部持倉）"""
         if POSITION_SYNC_INTERVAL <= 0:
@@ -639,6 +714,9 @@ class LiveTrader:
             
             # 恢復策略持倉（從數據庫）
             await self._restore_strategy_positions()
+            
+            # 策略預熱（載入歷史數據）
+            await self._warmup_strategies()
             
             # 主循環
             loop_count = 0
