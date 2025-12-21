@@ -668,3 +668,78 @@ class RiskManager:
                 pos.market_price = data.get("market_price", 0)
                 pos.market_value = data.get("market_value", 0)
                 pos.unrealized_pnl = data.get("unrealized_pnl", 0)
+    
+    def check_position_sync(
+        self,
+        ib_positions: Dict[str, Dict[str, Any]],
+        auto_fix: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        比對 IB 持倉與內部持倉
+        
+        Args:
+            ib_positions: IB 實際持倉 {symbol: {"quantity", "avg_cost", ...}}
+            auto_fix: 是否自動修正差異
+            
+        Returns:
+            {
+                "is_synced": bool,          # 是否一致
+                "differences": [...],        # 差異列表
+                "severe": bool,              # 是否有嚴重差異（方向相反）
+                "fixed": [...],              # 已修正的項目
+            }
+        """
+        with self._lock:
+            differences = []
+            fixed = []
+            severe = False
+            
+            # 取得所有相關標的
+            all_symbols = set(ib_positions.keys())
+            for symbol, pos in self._positions.items():
+                if pos.quantity != 0:
+                    all_symbols.add(symbol)
+            
+            for symbol in all_symbols:
+                ib_qty = ib_positions.get(symbol, {}).get("quantity", 0)
+                internal_pos = self._positions.get(symbol)
+                internal_qty = internal_pos.quantity if internal_pos else 0
+                
+                if ib_qty != internal_qty:
+                    diff = {
+                        "symbol": symbol,
+                        "internal_qty": internal_qty,
+                        "ib_qty": ib_qty,
+                        "diff": ib_qty - internal_qty,
+                    }
+                    differences.append(diff)
+                    
+                    # 檢查是否方向相反（嚴重問題）
+                    if internal_qty != 0 and ib_qty != 0:
+                        if (internal_qty > 0 and ib_qty < 0) or (internal_qty < 0 and ib_qty > 0):
+                            diff["severe"] = True
+                            severe = True
+                            logger.error(
+                                f"嚴重持倉差異！{symbol}: 內部={internal_qty}, IB={ib_qty} (方向相反)"
+                            )
+                    
+                    # 自動修正
+                    if auto_fix:
+                        if symbol not in self._positions:
+                            self._positions[symbol] = PositionInfo(symbol=symbol)
+                        
+                        self._positions[symbol].quantity = ib_qty
+                        if "avg_cost" in ib_positions.get(symbol, {}):
+                            self._positions[symbol].avg_cost = ib_positions[symbol]["avg_cost"]
+                        
+                        fixed.append(symbol)
+                        logger.info(f"已修正持倉: {symbol} {internal_qty} → {ib_qty}")
+            
+            is_synced = len(differences) == 0
+            
+            return {
+                "is_synced": is_synced,
+                "differences": differences,
+                "severe": severe,
+                "fixed": fixed,
+            }

@@ -165,6 +165,7 @@ class LiveTrader:
         self._running = False
         self._shutdown_event: Optional[asyncio.Event] = None
         self._start_time: Optional[datetime] = None
+        self._last_position_sync: Optional[datetime] = None
         
         # Logger
         self._logger = get_logger("LiveTrader")
@@ -448,6 +449,77 @@ class LiveTrader:
         except Exception as e:
             self._logger.warning(f"恢復策略持倉失敗: {e}")
     
+    async def _sync_positions_periodically(self) -> None:
+        """定期同步持倉（比對 IB 與內部持倉）"""
+        if POSITION_SYNC_INTERVAL <= 0:
+            return
+        
+        # 檢查是否到達同步時間
+        now = datetime.now()
+        if self._last_position_sync:
+            elapsed = (now - self._last_position_sync).total_seconds()
+            if elapsed < POSITION_SYNC_INTERVAL:
+                return
+        
+        self._logger.info("持倉同步檢查...")
+        
+        try:
+            ib = self._connection.ib
+            
+            # 從 IB 取得實際持倉
+            ib_positions_raw = ib.positions()
+            
+            # 轉換格式
+            ib_positions = {}
+            for pos in ib_positions_raw:
+                symbol = pos.contract.symbol
+                ib_positions[symbol] = {
+                    "quantity": int(pos.position),
+                    "avg_cost": float(pos.avgCost),
+                }
+            
+            # 比對並修正
+            result = self._risk_manager.check_position_sync(ib_positions, auto_fix=True)
+            
+            self._last_position_sync = now
+            
+            if result["is_synced"]:
+                pos_count = len([p for p in self._risk_manager.get_all_positions().values() if p.quantity != 0])
+                self._logger.info(f"✅ 持倉一致 ({pos_count} 個標的)")
+                return
+            
+            # 有差異
+            self._logger.warning("⚠️ 持倉不一致！")
+            for diff in result["differences"]:
+                self._logger.warning(
+                    f"  {diff['symbol']}: 內部={diff['internal_qty']}, IB={diff['ib_qty']}"
+                )
+            
+            # 發送通知
+            if self._notifier:
+                diff_text = "\n".join([
+                    f"  {d['symbol']}: 內部={d['internal_qty']}, IB={d['ib_qty']}"
+                    for d in result["differences"]
+                ])
+                await self._notifier.alert(
+                    f"持倉不一致警告！\n{diff_text}\n已自動修正",
+                    level=NotificationLevel.WARNING,
+                )
+            
+            # 嚴重差異：暫停交易
+            if result["severe"]:
+                self._logger.error("🚨 嚴重持倉差異（方向相反），暫停交易！")
+                self._risk_manager.disable_trading("嚴重持倉差異，方向相反")
+                
+                if self._notifier:
+                    await self._notifier.alert(
+                        "🚨 嚴重持倉差異！\n持倉方向相反，已暫停交易\n請手動檢查！",
+                        level=NotificationLevel.CRITICAL,
+                    )
+                    
+        except Exception as e:
+            self._logger.warning(f"定期同步持倉失敗: {e}")
+    
     async def _subscribe_symbols(self) -> None:
         """訂閱交易標的"""
         self._logger.info(f"訂閱 {len(self._symbols)} 個標的...")
@@ -591,6 +663,9 @@ class LiveTrader:
                 self._logger.warning("IB 連接斷開，嘗試重連...")
                 await self._send_alert("IB 連接斷開，正在重連...", NotificationLevel.WARNING)
                 self._connection.reconnect()
+        
+        # 定期同步持倉
+        await self._sync_positions_periodically()
         
         # 記錄性能
         self._performance_monitor.record_event("main_loop")
