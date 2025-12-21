@@ -86,6 +86,9 @@ from utils.performance import PerformanceMonitor
 # 配置
 # ============================================================
 
+# 持倉同步配置
+POSITION_SYNC_INTERVAL = 300  # 秒（5 分鐘），設為 0 停用定期同步
+
 # 外匯交易標的（免費數據）
 LIVE_SYMBOLS = [
     "XAUUSD",    # 黃金（商品）
