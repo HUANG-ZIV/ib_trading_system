@@ -89,6 +89,14 @@ from utils.performance import PerformanceMonitor
 # 持倉同步配置
 POSITION_SYNC_INTERVAL = 300  # 秒（5 分鐘），設為 0 停用定期同步
 
+# 訂單超時配置（秒），0 表示不超時
+ORDER_TIMEOUT = {
+    "MKT": 30,       # 市價單：30 秒
+    "LMT": 300,      # 限價單：5 分鐘
+    "STP": 0,        # 停損單：永不超時
+    "STP_LMT": 0,    # 停損限價：永不超時
+}
+
 # 外匯交易標的（免費數據）
 LIVE_SYMBOLS = [
     "XAUUSD",    # 黃金（商品）
@@ -281,6 +289,9 @@ class LiveTrader:
                 event_bus=self._event_bus,
                 risk_manager=self._risk_manager,
             )
+            
+            # 設定訂單超時配置
+            self._execution_engine.set_timeout_config(ORDER_TIMEOUT)
             
             self._logger.info("所有組件初始化完成")
             return True
@@ -747,6 +758,12 @@ class LiveTrader:
         
         # 定期同步持倉
         await self._sync_positions_periodically()
+        
+        # 檢查訂單超時
+        if self._execution_engine:
+            cancelled = self._execution_engine.check_order_timeouts()
+            if cancelled:
+                self._logger.info(f"已取消 {len(cancelled)} 個超時訂單")
         
         # 記錄性能
         self._performance_monitor.record_event("main_loop")

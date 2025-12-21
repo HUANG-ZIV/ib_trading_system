@@ -447,7 +447,7 @@ class ExecutionEngine:
         stop_loss: Optional[float],
         take_profit: Optional[float],
     ) -> None:
-        """附加停損停利訂單"""
+        """附加停損停利訂單（使用 OCA Group 互相取消）"""
         pending = self._pending_orders.get(order_id)
         if pending is None:
             return
@@ -455,11 +455,19 @@ class ExecutionEngine:
         # 反向動作
         exit_action = OrderAction.SELL if action == OrderAction.BUY else OrderAction.BUY
         
+        # 建立 OCA Group 名稱（當停損或停利成交時，取消另一個）
+        oca_group = f"OCA_{order_id}_{datetime.now().strftime('%H%M%S')}"
+        
         # 停損單
         if stop_loss:
             sl_order = StopOrder(exit_action.value, quantity, stop_loss)
             sl_order.parentId = order_id
             sl_order.transmit = False if take_profit else True
+            
+            # 設定 OCA（只有同時有停損和停利時才需要）
+            if take_profit:
+                sl_order.ocaGroup = oca_group
+                sl_order.ocaType = 1  # 1 = Cancel other orders in group
             
             sl_trade = self._ib.placeOrder(contract, sl_order)
             pending.stop_loss_order_id = sl_trade.order.orderId
@@ -473,13 +481,18 @@ class ExecutionEngine:
                     strategy_id=pending.strategy_id,
                 )
             
-            logger.debug(f"附加停損單: {stop_loss}")
+            logger.debug(f"附加停損單: {stop_loss} (OCA: {oca_group if take_profit else 'None'})")
         
         # 停利單
         if take_profit:
             tp_order = LimitOrder(exit_action.value, quantity, take_profit)
             tp_order.parentId = order_id
             tp_order.transmit = True
+            
+            # 設定 OCA（只有同時有停損和停利時才需要）
+            if stop_loss:
+                tp_order.ocaGroup = oca_group
+                tp_order.ocaType = 1  # 1 = Cancel other orders in group
             
             tp_trade = self._ib.placeOrder(contract, tp_order)
             pending.take_profit_order_id = tp_trade.order.orderId
@@ -493,7 +506,96 @@ class ExecutionEngine:
                     strategy_id=pending.strategy_id,
                 )
             
-            logger.debug(f"附加停利單: {take_profit}")
+            logger.debug(f"附加停利單: {take_profit} (OCA: {oca_group if stop_loss else 'None'})")
+    
+    # ========== 訂單超時 ==========
+    
+    def set_timeout_config(self, timeout_config: Dict[str, int]) -> None:
+        """
+        設定訂單超時配置
+        
+        Args:
+            timeout_config: {"MKT": 30, "LMT": 300, "STP": 0, ...}
+        """
+        self._timeout_config = timeout_config
+        logger.debug(f"訂單超時配置: {timeout_config}")
+    
+    def check_order_timeouts(self) -> List[int]:
+        """
+        檢查並取消超時訂單
+        
+        Returns:
+            已取消的訂單 ID 列表
+        """
+        if not hasattr(self, '_timeout_config'):
+            return []
+        
+        cancelled = []
+        now = datetime.now()
+        
+        with self._lock:
+            for order_id, pending in list(self._pending_orders.items()):
+                # 跳過已完成的訂單
+                if pending.status in [OrderStatus.FILLED, OrderStatus.CANCELLED, OrderStatus.REJECTED]:
+                    continue
+                
+                # 取得訂單類型
+                order_type = self._get_order_type_str(pending.order)
+                
+                # 取得超時時間
+                timeout = self._timeout_config.get(order_type, 0)
+                
+                # 0 表示不超時
+                if timeout <= 0:
+                    continue
+                
+                # 計算已等待時間
+                submit_time = pending.submitted_at or pending.created_at
+                elapsed = (now - submit_time).total_seconds()
+                
+                if elapsed > timeout:
+                    symbol = pending.contract.symbol
+                    logger.warning(
+                        f"訂單超時: #{order_id} {symbol} {order_type} "
+                        f"({elapsed:.0f}秒 > {timeout}秒)"
+                    )
+                    
+                    # 取消訂單
+                    if self.cancel_order(order_id):
+                        cancelled.append(order_id)
+                        
+                        # 發布超時事件（通知策略）
+                        self._emit_timeout_event(pending)
+        
+        return cancelled
+    
+    def _get_order_type_str(self, order: Order) -> str:
+        """取得訂單類型字串"""
+        order_type = order.orderType
+        if order_type == "MKT":
+            return "MKT"
+        elif order_type == "LMT":
+            return "LMT"
+        elif order_type == "STP":
+            return "STP"
+        elif order_type == "STP LMT":
+            return "STP_LMT"
+        else:
+            return order_type
+    
+    def _emit_timeout_event(self, pending: PendingOrder) -> None:
+        """發布訂單超時事件"""
+        event = OrderEvent(
+            event_type=EventType.ORDER,
+            order_id=pending.order_id,
+            symbol=pending.contract.symbol,
+            action=OrderAction.BUY if pending.order.action == "BUY" else OrderAction.SELL,
+            quantity=int(pending.order.totalQuantity),
+            status=OrderStatus.CANCELLED,
+            message="訂單超時取消",
+            strategy_id=pending.strategy_id,
+        )
+        self._event_bus.publish(event)
     
     # ========== 訂單取消 ==========
     
