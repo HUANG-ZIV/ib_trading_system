@@ -150,10 +150,10 @@ class TestStrategy(BaseStrategy):
             strategy_id=self.strategy_id,
             symbol=symbol,
             action=order_action,
-            quantity=self._quantity,
-            order_type=OrderType.MARKET,
+            suggested_quantity=int(self._quantity),
+            suggested_order_type=OrderType.MARKET,
             timestamp=datetime.now(),
-            price=event.close,
+            suggested_price=event.close,
             reason=f"Test trigger at bar #{self._bar_count[symbol]}",
         )
         
@@ -181,10 +181,10 @@ class TestStrategy(BaseStrategy):
             strategy_id=self.strategy_id,
             symbol=symbol,
             action=order_action,
-            quantity=self._quantity,
-            order_type=OrderType.MARKET,
+            suggested_quantity=int(self._quantity),
+            suggested_order_type=OrderType.MARKET,
             timestamp=datetime.now(),
-            price=event.close,
+            suggested_price=event.close,
             reason=f"Auto close after {self._auto_close_bars} bars",
         )
         

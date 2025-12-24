@@ -147,6 +147,7 @@ class FeedHandler:
         contract: Contract,
         subscription_type: SubscriptionType = SubscriptionType.TICK,
         generic_tick_list: str = "",
+        symbol_name: str = "",
     ) -> bool:
         """
         訂閱市場數據
@@ -155,11 +156,12 @@ class FeedHandler:
             contract: IB 合約
             subscription_type: 訂閱類型
             generic_tick_list: 額外的 Tick 類型（IB generic tick list）
+            symbol_name: 自定義標的名稱（預設使用 contract.symbol）
             
         Returns:
             是否訂閱成功
         """
-        symbol = contract.symbol
+        symbol = symbol_name or contract.symbol
         
         if symbol in self._subscriptions:
             logger.warning(f"已訂閱 {symbol}，跳過")
@@ -198,9 +200,9 @@ class FeedHandler:
                 )
                 sub_info.realtime_bars_handle = bars
                 
-                # 註冊 bar 更新回調
-                bars.updateEvent += lambda bars, has_new: self._on_realtime_bar(
-                    symbol, bars, has_new
+                # 註冊 bar 更新回調（使用 s=symbol 捕獲當前值）
+                bars.updateEvent += lambda bars, has_new, s=symbol: self._on_realtime_bar(
+                    s, bars, has_new
                 )
                 
                 logger.info(f"訂閱即時 Bar: {symbol}")
@@ -344,10 +346,12 @@ class FeedHandler:
         
         sub_info = self._subscriptions.get(symbol)
         if sub_info is None:
+            logger.warning(f"收到 Bar 但找不到訂閱資訊: {symbol}")
             return
         
         # 取得最新的 Bar
         bar = bars[-1]
+        logger.info(f"收到 Bar: {symbol} | Close: {bar.close:.4f}")
         
         # 更新統計
         sub_info.bar_count += 1

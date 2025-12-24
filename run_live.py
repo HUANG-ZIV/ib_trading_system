@@ -53,7 +53,7 @@ from engine.execution_engine import ExecutionEngine
 
 # 數據
 from data.feed_handler import FeedHandler, SubscriptionType
-from data.database import DatabaseManager
+from data.database import Database as DatabaseManager
 from data.bar_aggregator import BarAggregator
 from data.cache import MarketDataCache
 
@@ -78,6 +78,7 @@ from utils.market_hours import (
     time_until_market_open,
     get_eastern_time,
     get_taiwan_time,
+    MarketType,
 )
 from utils.performance import PerformanceMonitor
 
@@ -635,6 +636,7 @@ class LiveTrader:
                 success = await self._feed_handler.subscribe(
                     contract=contract,
                     subscription_type=SubscriptionType.REALTIME_BAR,
+                    symbol_name=symbol,  # 使用原始 symbol 名稱
                 )
                 
                 if success:
@@ -778,7 +780,7 @@ class LiveTrader:
         """輸出狀態"""
         et = get_eastern_time()
         tw = get_taiwan_time()
-        market_status = "開盤" if is_market_open() else "休市"
+        market_status = "開盤" if is_market_open(market_type=MarketType.FOREX) else "休市"
         
         uptime = datetime.now() - self._start_time
         
@@ -801,10 +803,10 @@ class LiveTrader:
         self._logger.info(f"交易標的: {', '.join(self._symbols[:5])}{'...' if len(self._symbols) > 5 else ''}")
         self._logger.info(f"美東時間: {et.strftime('%Y-%m-%d %H:%M:%S')}")
         self._logger.info(f"台灣時間: {tw.strftime('%Y-%m-%d %H:%M:%S')}")
-        self._logger.info(f"市場狀態: {'開盤中' if is_market_open() else '休市'}")
+        self._logger.info(f"市場狀態: {'開盤中' if is_market_open(market_type=MarketType.FOREX) else '休市'}")
         
-        if not is_market_open():
-            remaining = time_until_market_open()
+        if not is_market_open(market_type=MarketType.FOREX):
+            remaining = time_until_market_open(market_type=MarketType.FOREX)
             self._logger.info(f"距離開盤: {format_duration(remaining)}")
         
         self._logger.info("=" * 60)

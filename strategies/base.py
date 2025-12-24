@@ -68,6 +68,13 @@ class StrategyConfig:
     # 額外參數
     params: Dict[str, Any] = field(default_factory=dict)
 
+    # 預熱配置
+    warmup_bars: int = 0                     # 需要的歷史 K 線數量，0 表示不預熱
+    warmup_bar_size: str = "5 secs"          # K 線週期
+    warmup_duration: str = ""                # 時間區間（如 "1 D"），與 warmup_bars 二選一
+    warmup_what_to_show: str = "MIDPOINT"    # 數據類型：MIDPOINT, TRADES 等
+    warmup_required: bool = False            # 預熱失敗是否阻止啟動
+
 
 @dataclass
 class StrategyStats:
