@@ -2,6 +2,8 @@
 Symbols 模組 - 交易標的定義
 
 定義各種證券類型和交易標的配置
+
+更新: 添加 Event Contract (ForecastEx, CME Event) 支持
 """
 
 from dataclasses import dataclass, field
@@ -20,6 +22,10 @@ class SecurityType(Enum):
     INDEX = "IND"       # 指數
     CFD = "CFD"         # 差價合約
     COMMODITY = "CMDTY" # 商品
+    
+    # ========== Event Contract 類型 ==========
+    EVENT_OPT = "EVENT_OPT"   # ForecastEx Event Contract
+    EVENT_FOP = "EVENT_FOP"   # CME Event Contract
 
 
 class OptionRight(Enum):
@@ -73,6 +79,11 @@ class SymbolConfig:
         if self.security_type == SecurityType.OPTION:
             if not all([self.expiry, self.strike, self.right]):
                 raise ValueError("Option requires expiry, strike, and right")
+        
+        # ========== Event Contract 驗證 ==========
+        if self.security_type in [SecurityType.EVENT_OPT, SecurityType.EVENT_FOP]:
+            if not all([self.expiry, self.strike, self.right]):
+                raise ValueError("Event Contract requires expiry, strike, and right")
     
     def to_dict(self) -> Dict:
         """轉換為字典（用於建立 IB 合約）"""
@@ -272,6 +283,139 @@ def create_index(
     )
 
 
+def create_commodity(
+    symbol: str,
+    exchange: str = "SMART",
+    currency: str = "USD",
+    **kwargs
+) -> SymbolConfig:
+    """
+    建立商品標的配置
+    
+    Args:
+        symbol: 商品代碼 (如 XAUUSD, XAGUSD)
+        exchange: 交易所 (預設 SMART)
+        currency: 貨幣 (預設 USD)
+        
+    Returns:
+        SymbolConfig 實例
+        
+    Example:
+        >>> gold = create_commodity("XAUUSD")  # 黃金
+        >>> silver = create_commodity("XAGUSD")  # 白銀
+    """
+    return SymbolConfig(
+        symbol=symbol,
+        security_type=SecurityType.COMMODITY,
+        exchange=exchange,
+        currency=currency,
+        **kwargs
+    )
+
+
+# ============================================================
+# Event Contract 工廠函數
+# ============================================================
+
+def create_forecastex(
+    symbol: str,
+    expiry: str,
+    strike: float,
+    is_yes: bool = True,
+    currency: str = "USD",
+    **kwargs
+) -> SymbolConfig:
+    """
+    建立 ForecastEx Event Contract 配置
+    
+    ForecastEx 是 IB 的經濟指標預測合約交易所
+    
+    Args:
+        symbol: 標的代碼 (FF, CPI, UNRATE, GDP, etc.)
+        expiry: 到期日 YYYYMMDD
+        strike: 執行價
+        is_yes: True=Yes(Call), False=No(Put)
+        currency: 貨幣
+        
+    Returns:
+        SymbolConfig 實例
+        
+    Example:
+        >>> ff_yes = create_forecastex("FF", "20250129", 4.375)
+        >>> cpi_no = create_forecastex("CPI", "20250115", 3.5, is_yes=False)
+    """
+    return SymbolConfig(
+        symbol=symbol,
+        security_type=SecurityType.EVENT_OPT,
+        exchange="FORECASTX",
+        currency=currency,
+        expiry=expiry,
+        strike=strike,
+        right=OptionRight.CALL if is_yes else OptionRight.PUT,
+        description=f"ForecastEx {symbol} {'YES' if is_yes else 'NO'} @ {strike}",
+        tick_size=0.01,
+        min_qty=1,
+        **kwargs
+    )
+
+
+def create_cme_event(
+    symbol: str,
+    expiry: str,
+    strike: float,
+    is_yes: bool = True,
+    currency: str = "USD",
+    **kwargs
+) -> SymbolConfig:
+    """
+    建立 CME Event Contract 配置
+    
+    CME Event Contracts 是基於期貨的事件合約
+    
+    Args:
+        symbol: 標的代碼 (ES, NQ, GC, CL)
+        expiry: 到期日 YYYYMMDD
+        strike: 執行價
+        is_yes: True=Yes(Call), False=No(Put)
+        currency: 貨幣
+        
+    Returns:
+        SymbolConfig 實例
+        
+    Example:
+        >>> es_event = create_cme_event("ES", "20250111", 5900)
+    """
+    return SymbolConfig(
+        symbol=symbol,
+        security_type=SecurityType.EVENT_FOP,
+        exchange="CME",
+        currency=currency,
+        expiry=expiry,
+        strike=strike,
+        right=OptionRight.CALL if is_yes else OptionRight.PUT,
+        description=f"CME Event {symbol} {'YES' if is_yes else 'NO'} @ {strike}",
+        tick_size=0.01,
+        min_qty=1,
+        **kwargs
+    )
+
+
+# ============================================================
+# ForecastEx 市場定義
+# ============================================================
+
+FORECASTEX_MARKETS: Dict[str, str] = {
+    "FF": "Fed Funds Rate",
+    "CPI": "Consumer Price Index",
+    "UNRATE": "Unemployment Rate",
+    "GDP": "Gross Domestic Product",
+    "RSALES": "Retail Sales",
+    "HOUST": "Housing Starts",
+    "INDPRO": "Industrial Production",
+    "UMCSENT": "Consumer Sentiment",
+}
+
+
 # ============================================================
 # 預設標的列表
 # ============================================================
@@ -322,6 +466,12 @@ FOREX_PAIRS: List[SymbolConfig] = [
     create_forex("USD", currency="JPY", description="USD/JPY"),  # USD 是基準貨幣
     create_forex("AUD", currency="USD", description="AUD/USD"),
     create_forex("USD", currency="CHF", description="USD/CHF"),  # USD 是基準貨幣
+]
+
+# 貴金屬商品
+COMMODITIES: List[SymbolConfig] = [
+    create_commodity("XAUUSD", description="London Gold"),
+    create_commodity("XAGUSD", description="London Silver"),
 ]
 
 
@@ -396,39 +546,3 @@ def get_next_expiry(symbol: str, months_ahead: int = 1) -> str:
         year += 1
     
     return f"{year}{month:02d}"
-
-def create_commodity(
-    symbol: str,
-    exchange: str = "SMART",
-    currency: str = "USD",
-    **kwargs
-) -> SymbolConfig:
-    """
-    建立商品標的配置
-    
-    Args:
-        symbol: 商品代碼 (如 XAUUSD, XAGUSD)
-        exchange: 交易所 (預設 SMART)
-        currency: 貨幣 (預設 USD)
-        
-    Returns:
-        SymbolConfig 實例
-        
-    Example:
-        >>> gold = create_commodity("XAUUSD")  # 黃金
-        >>> silver = create_commodity("XAGUSD")  # 白銀
-    """
-    return SymbolConfig(
-        symbol=symbol,
-        security_type=SecurityType.COMMODITY,
-        exchange=exchange,
-        currency=currency,
-        **kwargs
-    )
-
-
-# 貴金屬商品
-COMMODITIES: List[SymbolConfig] = [
-    create_commodity("XAUUSD", description="London Gold"),
-    create_commodity("XAGUSD", description="London Silver"),
-]
