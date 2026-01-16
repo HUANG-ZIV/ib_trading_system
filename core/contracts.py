@@ -642,3 +642,21 @@ def create_forex_contract(
     """建立外匯合約的便捷函數"""
     factory = get_contract_factory()
     return factory.forex(base, quote, exchange)
+# Event Contract 擴展
+def _add_event_methods():
+    from ib_insync import Option
+    def forecastex(self, symbol, expiry, strike, is_yes=True, currency="USD"):
+        return Option(symbol=symbol, lastTradeDateOrContractMonth=expiry, strike=strike,
+                     right="C" if is_yes else "P", exchange="FORECASTX", currency=currency)
+    def forecastex_pair(self, symbol, expiry, strike, currency="USD"):
+        return (self.forecastex(symbol,expiry,strike,True,currency), 
+                self.forecastex(symbol,expiry,strike,False,currency))
+    def fed_funds(self, expiry, strike, is_yes=True):
+        return self.forecastex("FF", expiry, strike, is_yes)
+    def cpi(self, expiry, strike, is_yes=True):
+        return self.forecastex("CPI", expiry, strike, is_yes)
+    ContractFactory.forecastex = forecastex
+    ContractFactory.forecastex_pair = forecastex_pair
+    ContractFactory.fed_funds = fed_funds
+    ContractFactory.cpi = cpi
+_add_event_methods()
